@@ -1,0 +1,9 @@
+- targets:  # url;humanname;routing;switch;module
+    - http://google.com;google.com;external;internetbox;http_2xx
+    - http://github.com;github.com;external;internetbox;http_2xx
+    - http://reddit.com;reddit.com;external;internetbox;http_2xx
+    - https://claude.ai;claude.ai;external;internetbox;http_2xx_4xx
+    - https://chat.openai.com;chatgpt;external;internetbox;http_2xx_4xx
+    - https://api.anthropic.com;anthropic-api;external;internetbox;http_2xx_4xx
+    - https://api.openai.com;openai-api;external;internetbox;http_2xx_4xx
+    - 192.168.1.1;internetbox;local;internetbox;icmp
