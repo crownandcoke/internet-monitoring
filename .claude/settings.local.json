@@ -41,7 +41,10 @@
       "Read(/G:\\internet-monitoring\\grafana\\provisioning\\dashboards/**)",
       "Read(/G:\\internet-monitoring\\grafana\\provisioning\\dashboards/**)",
       "Read(/G:\\internet-monitoring\\grafana\\provisioning\\dashboards/**)",
-      "Read(/G:\\internet-monitoring\\grafana\\provisioning\\dashboards/**)"
+      "Read(/G:\\internet-monitoring\\grafana\\provisioning\\dashboards/**)",
+      "Bash(git remote set-url:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

@@ -25,7 +25,7 @@ A comprehensive Docker stack for monitoring your home network performance, featu
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Quinten0508/internet-monitoring
+git clone https://github.com/crownandcoke/internet-monitoring
 cd internet-monitoring
 ```
 

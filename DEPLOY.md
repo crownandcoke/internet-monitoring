@@ -38,7 +38,7 @@ This complete monitoring stack includes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Quinten0508/internet-monitoring
+git clone https://github.com/crownandcoke/internet-monitoring
 cd internet-monitoring
 
 # Start the stack
@@ -49,7 +49,7 @@ docker-compose up -d
 
 ```bash
 # Download the v1.1 release
-wget https://github.com/Quinten0508/internet-monitoring/archive/refs/tags/v1.1.tar.gz
+wget https://github.com/crownandcoke/internet-monitoring/archive/refs/tags/v1.1.tar.gz
 tar -xzf v1.1.tar.gz
 cd internet-monitoring-1.1
 
@@ -110,5 +110,5 @@ Edit `prometheus/prometheus.yml`:
 
 ## Support
 
-- GitHub Issues: https://github.com/Quinten0508/internet-monitoring/issues
+- GitHub Issues: https://github.com/crownandcoke/internet-monitoring/issues
 - Docker Hub: https://hub.docker.com/r/crownandcoke/speedtest-exporter
