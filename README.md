@@ -2,7 +2,7 @@
 
 A comprehensive Docker stack for monitoring your home network performance, featuring real-time speed tests, ping monitoring, and beautiful Grafana dashboards. This stack includes Prometheus, Grafana, Blackbox Exporter, and a custom Go-based Speedtest Exporter.
 
-![Dashboard Preview](images/dashboard.png)
+![Dashboard Preview](images/dashboard.png?v=1.1)
 
 ## Features
 
