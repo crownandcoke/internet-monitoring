@@ -61,13 +61,18 @@ services:
 
   speedtest:
     container_name: speedtest
-    image: stefanwalther/speedtest-exporter
+    # Use Docker Hub image v1.1 (comment out to use local build)
+    image: crownandcoke/speedtest-exporter:v1.1
+    # Uncomment below to build locally instead of using Docker Hub
+    # build: ./speedtest-exporter
     ports:
       - 9696:9696
     tty: true
     stdin_open: true
     expose:
       - 9696
+    environment:
+      - SPEEDTEST_PORT=9696
     networks:
       - internet-monitoring
     restart: always
