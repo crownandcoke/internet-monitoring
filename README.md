@@ -2,17 +2,29 @@
 
 A comprehensive Docker stack for monitoring your home network performance, featuring real-time speed tests, ping monitoring, and beautiful Grafana dashboards. This stack includes Prometheus, Grafana, Blackbox Exporter, and a custom Go-based Speedtest Exporter.
 
-<center><img src="images/image.png" width="4600" heighth="500"></center>
+![Dashboard Preview](images/dashboard.png)
 
 ## Features
 
-- 📊 **Real-time Network Monitoring** - Track ping times to multiple hosts
+- 📊 **Real-time Network Monitoring** - Track ping times to multiple hosts including AI services
 - 🚀 **Internet Speed Testing** - Automated and on-demand speed tests
 - 📈 **Beautiful Dashboards** - Pre-configured Grafana dashboard with all metrics
 - 🎯 **Custom Speedtest Exporter** - Efficient Go-based exporter with web UI
 - ⏰ **Configurable Test Intervals** - Balance between monitoring and resource usage
 - 🔧 **Manual Test Triggers** - Web interface for on-demand speed tests
 - 🐳 **Docker Hub Integration** - Pre-built images available
+
+## Dashboard Overview
+
+The v1.1 dashboard includes enhanced panels:
+- **Manual Speed Test Trigger** - Link to speedtest control panel (top panel)
+- **Download/Upload Gauges** - Real-time speed test results in Mbps
+- **Ping Gauge** - Current ping latency
+- **Speed Test History** - Upload and download trends over time
+- **Total Response Time** - Complete probe duration for monitored sites (improved in v1.1)
+- **Site Status** - Discrete up/down indicators with status history (new in v1.1)
+- **HTTP Duration by Phase** - With logarithmic scale for better readability (enhanced in v1.1)
+- **AI Service Monitoring** - Claude.ai, ChatGPT, and API endpoints (new in v1.1)
 
 ## Prerequisites
 
