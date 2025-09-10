@@ -105,7 +105,7 @@
       },
       "id": 8,
       "links": [],
-      "maxDataPoints": 100,
+      "maxDataPoints": 300,
       "options": {
         "orientation": "horizontal",
         "reduceOptions": {
@@ -181,7 +181,7 @@
       },
       "id": 10,
       "links": [],
-      "maxDataPoints": 100,
+      "maxDataPoints": 300,
       "options": {
         "orientation": "horizontal",
         "reduceOptions": {
@@ -255,7 +255,7 @@
       },
       "id": 12,
       "links": [],
-      "maxDataPoints": 100,
+      "maxDataPoints": 300,
       "options": {
         "orientation": "horizontal",
         "reduceOptions": {
@@ -361,8 +361,9 @@
       "pluginVersion": "v1.0",
       "targets": [
         {
-          "expr": "speedtest_bits_per_second{}",
+          "expr": "avg_over_time(speedtest_bits_per_second{}[$__interval])",
           "format": "time_series",
+          "interval": "5m",
           "intervalFactor": 1,
           "legendFormat": "{{direction}}",
           "refId": "A"
@@ -451,8 +452,9 @@
       "pluginVersion": "v1.0",
       "targets": [
         {
-          "expr": "probe_duration_seconds{instance!=\"http://192.168.1.1\"}",
+          "expr": "avg_over_time(probe_duration_seconds{instance!=\"http://192.168.1.1\"}[$__interval])",
           "format": "time_series",
+          "interval": "1m",
           "intervalFactor": 1,
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -531,14 +533,14 @@
           "sort": "none"
         }
       },
-      "interval": "5s",
-      "maxDataPoints": 500,
+      "interval": "30s",
+      "maxDataPoints": 200,
       "pluginVersion": "v1.0",
       "targets": [
         {
           "expr": "probe_success{instance!=\"http://192.168.1.1\"}",
           "format": "time_series",
-          "interval": "5s",
+          "interval": "30s",
           "intervalFactor": 1,
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -628,8 +630,9 @@
       "pluginVersion": "v1.0",
       "targets": [
         {
-          "expr": "sum(probe_http_duration_seconds{instance!=\"http://192.168.1.1\"}) by (instance, phase)",
+          "expr": "probe_http_duration_seconds",
           "format": "time_series",
+          "interval": "1m",
           "intervalFactor": 1,
           "legendFormat": "{{instance}} - {{phase}}",
           "refId": "A"
