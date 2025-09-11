@@ -41,6 +41,7 @@ services:
       - ./grafana/config.monitoring
     networks:
       - internet-monitoring
+    restart: always
       
   blackbox_exporter:
     container_name: blackbox_exporter
