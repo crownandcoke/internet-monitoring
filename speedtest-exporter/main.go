@@ -43,11 +43,62 @@ var (
 		},
 	)
 
+	// Observability metrics for detecting blocking operations
+	httpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "speedtest_http_request_duration_seconds",
+			Help:    "HTTP request duration in seconds",
+			Buckets: []float64{0.001, 0.01, 0.1, 0.5, 1, 2, 5, 10, 30, 60},
+		},
+		[]string{"endpoint"},
+	)
+
+	httpConcurrentRequests = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "speedtest_http_concurrent_requests",
+			Help: "Number of concurrent HTTP requests being processed",
+		},
+		[]string{"endpoint"},
+	)
+
+	speedtestDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "speedtest_execution_duration_seconds",
+			Help:    "Time taken to execute a speed test",
+			Buckets: []float64{1, 5, 10, 15, 30, 45, 60, 90, 120},
+		},
+	)
+
+	speedtestTimeouts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "speedtest_timeouts_total",
+			Help: "Number of speedtest timeouts by method",
+		},
+		[]string{"method"},
+	)
+
+	speedtestSkipped = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "speedtest_skipped_total",
+			Help: "Number of speedtests skipped due to test already in progress",
+		},
+	)
+
+	speedtestMethodUsed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "speedtest_method_used_total",
+			Help: "Number of times each speedtest method was used successfully",
+		},
+		[]string{"method"},
+	)
+
 	// Cache for results
 	resultCache      *SpeedTestResult
 	cacheMutex       sync.RWMutex
 	lastTestTime     time.Time
 	testInProgress   int32 // atomic flag: 0 = not running, 1 = running
+	testStartTime    time.Time
+	testStartMutex   sync.RWMutex
 
 	// HTTP client with timeout for download tests
 	httpClient = &http.Client{
@@ -66,6 +117,14 @@ func init() {
 	prometheus.MustRegister(speedtestBitsPerSecond)
 	prometheus.MustRegister(speedtestPing)
 	prometheus.MustRegister(speedtestUp)
+
+	// Register observability metrics
+	prometheus.MustRegister(httpRequestDuration)
+	prometheus.MustRegister(httpConcurrentRequests)
+	prometheus.MustRegister(speedtestDuration)
+	prometheus.MustRegister(speedtestTimeouts)
+	prometheus.MustRegister(speedtestSkipped)
+	prometheus.MustRegister(speedtestMethodUsed)
 }
 
 // Run speedtest-cli if available
@@ -80,6 +139,7 @@ func runSpeedtestCLI() (*SpeedTestResult, error) {
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
+			speedtestTimeouts.WithLabelValues("speedtest-cli").Inc()
 			return nil, fmt.Errorf("speedtest-cli timed out after 60s")
 		}
 		return nil, fmt.Errorf("speedtest-cli failed: %v", err)
@@ -94,6 +154,7 @@ func runSpeedtestCLI() (*SpeedTestResult, error) {
 	upload, _ := result["upload"].(float64)
 	ping, _ := result["ping"].(float64)
 
+	speedtestMethodUsed.WithLabelValues("speedtest-cli").Inc()
 	return &SpeedTestResult{
 		Download: download,
 		Upload:   upload,
@@ -113,6 +174,7 @@ func runOoklaSpeedtest() (*SpeedTestResult, error) {
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
+			speedtestTimeouts.WithLabelValues("ookla").Inc()
 			return nil, fmt.Errorf("ookla speedtest timed out after 60s")
 		}
 		return nil, fmt.Errorf("ookla speedtest failed: %v", err)
@@ -131,6 +193,7 @@ func runOoklaSpeedtest() (*SpeedTestResult, error) {
 	upload, _ := uploadData["bandwidth"].(float64)
 	ping, _ := pingData["latency"].(float64)
 
+	speedtestMethodUsed.WithLabelValues("ookla").Inc()
 	// Ookla returns bandwidth in bytes/sec, convert to bits/sec
 	return &SpeedTestResult{
 		Download: download * 8,
@@ -258,6 +321,7 @@ func performHTTPSpeedTest() (*SpeedTestResult, error) {
 		downloadSpeed = 50 * 1024 * 1024 // 50 Mbps
 	}
 
+	speedtestMethodUsed.WithLabelValues("http-fallback").Inc()
 	return &SpeedTestResult{
 		Download: downloadSpeed,
 		Upload:   downloadSpeed * 0.3, // Estimate upload as 30% of download
@@ -293,16 +357,27 @@ func updateMetrics() {
 	// Use atomic compare-and-swap to prevent race conditions
 	if !atomic.CompareAndSwapInt32(&testInProgress, 0, 1) {
 		log.Println("Speed test already in progress, skipping...")
+		speedtestSkipped.Inc()
 		return
 	}
 
 	defer atomic.StoreInt32(&testInProgress, 0)
 
-	log.Println("Starting speed test...")
+	// Track test start time for observability
+	startTime := time.Now()
+	testStartMutex.Lock()
+	testStartTime = startTime
+	testStartMutex.Unlock()
+
+	log.Printf("Starting speed test at %s...", startTime.Format(time.RFC3339))
 	result, err := performSpeedTest()
 
+	// Track duration
+	duration := time.Since(startTime).Seconds()
+	speedtestDuration.Observe(duration)
+
 	if err != nil {
-		log.Printf("Speed test failed: %v", err)
+		log.Printf("Speed test failed after %.2f seconds: %v", duration, err)
 		speedtestUp.Set(0)
 		return
 	}
@@ -319,8 +394,31 @@ func updateMetrics() {
 	speedtestPing.Set(result.Ping)
 	speedtestUp.Set(1)
 
-	log.Printf("Speed test completed - Download: %.2f Mbps, Upload: %.2f Mbps, Ping: %.2f ms",
-		result.Download/1024/1024, result.Upload/1024/1024, result.Ping)
+	log.Printf("Speed test completed in %.2f seconds - Download: %.2f Mbps, Upload: %.2f Mbps, Ping: %.2f ms",
+		duration, result.Download/1024/1024, result.Upload/1024/1024, result.Ping)
+}
+
+// HTTP middleware to track request duration and concurrency
+func observabilityMiddleware(endpoint string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Track concurrent requests
+		httpConcurrentRequests.WithLabelValues(endpoint).Inc()
+		defer httpConcurrentRequests.WithLabelValues(endpoint).Dec()
+
+		// Track request duration
+		start := time.Now()
+		defer func() {
+			duration := time.Since(start).Seconds()
+			httpRequestDuration.WithLabelValues(endpoint).Observe(duration)
+
+			// Log slow requests (> 1 second indicates potential blocking)
+			if duration > 1.0 {
+				log.Printf("SLOW REQUEST: %s took %.2f seconds", endpoint, duration)
+			}
+		}()
+
+		next(w, r)
+	}
 }
 
 // Custom handler that triggers speed test on scrape
@@ -380,18 +478,18 @@ func main() {
 		updateMetrics()
 	}()
 
-	// Set up HTTP server
-	http.Handle("/metrics", metricsHandler())
-	http.Handle("/trigger", triggerHandler())
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Set up HTTP server with observability middleware
+	http.Handle("/metrics", observabilityMiddleware("metrics", metricsHandler()))
+	http.Handle("/trigger", observabilityMiddleware("trigger", triggerHandler()))
+	http.HandleFunc("/health", observabilityMiddleware("health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
-	})
-	
+	}))
+
 	// Serve the control panel HTML
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", observabilityMiddleware("index", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "index.html")
-	})
+	}))
 
 	log.Printf("Speedtest exporter starting on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
