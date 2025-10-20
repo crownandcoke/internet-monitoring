@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -42,11 +44,15 @@ var (
 	)
 
 	// Cache for results
-	resultCache   *SpeedTestResult
-	cacheMutex    sync.RWMutex
-	lastTestTime  time.Time
-	testInProgress bool
-	testMutex     sync.Mutex
+	resultCache      *SpeedTestResult
+	cacheMutex       sync.RWMutex
+	lastTestTime     time.Time
+	testInProgress   int32 // atomic flag: 0 = not running, 1 = running
+
+	// HTTP client with timeout for download tests
+	httpClient = &http.Client{
+		Timeout: 30 * time.Second,
+	}
 )
 
 type SpeedTestResult struct {
@@ -64,11 +70,18 @@ func init() {
 
 // Run speedtest-cli if available
 func runSpeedtestCLI() (*SpeedTestResult, error) {
-	cmd := exec.Command("speedtest-cli", "--json")
+	// Create context with 60 second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "speedtest-cli", "--json")
 	cmd.Env = os.Environ()
-	
+
 	output, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("speedtest-cli timed out after 60s")
+		}
 		return nil, fmt.Errorf("speedtest-cli failed: %v", err)
 	}
 
@@ -90,11 +103,18 @@ func runSpeedtestCLI() (*SpeedTestResult, error) {
 
 // Run ookla speedtest CLI (newer version)
 func runOoklaSpeedtest() (*SpeedTestResult, error) {
-	cmd := exec.Command("speedtest", "--accept-license", "--accept-gdpr", "-f", "json")
+	// Create context with 60 second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "speedtest", "--accept-license", "--accept-gdpr", "-f", "json")
 	cmd.Env = os.Environ()
-	
+
 	output, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ookla speedtest timed out after 60s")
+		}
 		return nil, fmt.Errorf("ookla speedtest failed: %v", err)
 	}
 
@@ -121,15 +141,22 @@ func runOoklaSpeedtest() (*SpeedTestResult, error) {
 
 // Estimate ping using system ping command
 func estimatePing() float64 {
-	targets := []string{"8.8.8.8", "1.1.1.1", "9.9.9.9"}
+	// Reduced to 2 targets to minimize CPU usage
+	targets := []string{"8.8.8.8", "1.1.1.1"}
 	var pings []float64
 
 	for _, target := range targets {
+		// Create context with 10 second timeout for ping command
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		var cmd *exec.Cmd
 		if strings.Contains(strings.ToLower(os.Getenv("OS")), "windows") {
-			cmd = exec.Command("ping", "-n", "4", target)
+			// Reduced from 4 to 2 pings to minimize CPU usage
+			cmd = exec.CommandContext(ctx, "ping", "-n", "2", target)
 		} else {
-			cmd = exec.Command("ping", "-c", "4", target)
+			// Reduced from 4 to 2 pings to minimize CPU usage
+			cmd = exec.CommandContext(ctx, "ping", "-c", "2", target)
 		}
 
 		output, err := cmd.Output()
@@ -161,6 +188,7 @@ func estimatePing() float64 {
 
 		if avgPing > 0 {
 			pings = append(pings, avgPing)
+			break // Use first successful ping to reduce CPU usage
 		}
 	}
 
@@ -178,6 +206,10 @@ func estimatePing() float64 {
 
 // Simple HTTP download test as fallback
 func performHTTPSpeedTest() (*SpeedTestResult, error) {
+	// Create context with 20 second timeout for entire HTTP test
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	// Download test using a CDN endpoint
 	testURLs := []string{
 		"https://speed.cloudflare.com/__down?bytes=10000000", // 10MB from Cloudflare
@@ -187,11 +219,17 @@ func performHTTPSpeedTest() (*SpeedTestResult, error) {
 	var downloadSpeed float64
 	for _, url := range testURLs {
 		start := time.Now()
-		resp, err := http.Get(url)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			continue
 		}
-		
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+
 		buffer := make([]byte, 32*1024) // 32KB buffer
 		var totalBytes int64
 		for {
@@ -200,8 +238,8 @@ func performHTTPSpeedTest() (*SpeedTestResult, error) {
 			if err != nil {
 				break
 			}
-			// Stop after 5 seconds
-			if time.Since(start) > 5*time.Second {
+			// Stop after 5 seconds or if context cancelled
+			if time.Since(start) > 5*time.Second || ctx.Err() != nil {
 				break
 			}
 		}
@@ -252,23 +290,17 @@ func performSpeedTest() (*SpeedTestResult, error) {
 }
 
 func updateMetrics() {
-	testMutex.Lock()
-	if testInProgress {
-		testMutex.Unlock()
+	// Use atomic compare-and-swap to prevent race conditions
+	if !atomic.CompareAndSwapInt32(&testInProgress, 0, 1) {
+		log.Println("Speed test already in progress, skipping...")
 		return
 	}
-	testInProgress = true
-	testMutex.Unlock()
 
-	defer func() {
-		testMutex.Lock()
-		testInProgress = false
-		testMutex.Unlock()
-	}()
+	defer atomic.StoreInt32(&testInProgress, 0)
 
 	log.Println("Starting speed test...")
 	result, err := performSpeedTest()
-	
+
 	if err != nil {
 		log.Printf("Speed test failed: %v", err)
 		speedtestUp.Set(0)
@@ -301,12 +333,13 @@ func metricsHandler() http.HandlerFunc {
 		cacheMutex.RUnlock()
 
 		// Run test if cache is older than 30 minutes or doesn't exist
-		// Increased from 5 minutes to reduce automatic test frequency
+		// Run asynchronously in goroutine to prevent blocking HTTP response
 		if cached == nil || timeSinceLastTest > 30*time.Minute {
-			updateMetrics()
+			// Only trigger if not already running (atomic check inside updateMetrics)
+			go updateMetrics()
 		}
 
-		// Serve metrics
+		// Serve metrics immediately (don't wait for test to complete)
 		promhttp.Handler().ServeHTTP(w, r)
 	}
 }
